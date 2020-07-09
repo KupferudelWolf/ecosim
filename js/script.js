@@ -1,7 +1,7 @@
 (function () {
   /// User-defined.
   var gridSize = 32,
-      gridDim = [25, 25],
+      gridDim = [20, 20],
       allowDiagonals = true,
       canCrossWalls = !true,
       aStarLimit = 1000,
@@ -11,8 +11,8 @@
   $(document).ready(function () {
     const CANVAS = $('#world').get(0),
           CTX = CANVAS.getContext('2d'),
-          WIDTH = CANVAS.width = gridSize * gridDim[0],
-          HEIGHT = CANVAS.height = gridSize * gridDim[1],
+          WIDTH = CANVAS.width = gridSize * gridDim[0] * 3/4,
+          HEIGHT = CANVAS.height = gridSize * gridDim[1] * Math.sqrt(3)/2,
           createCanvas = function (id) {
             let canvas = $('<canvas>')
                   .attr('width', WIDTH)
@@ -24,6 +24,24 @@
             ctx.getPL = function (x, y) {
               return ctx.getImageData(x, y, 1, 1).data[0] / 255;
             };
+            ctx.hexagon = function (x, y, r) {
+              ctx.beginPath();
+              let f = 'moveTo';
+              for (let i = 0; i <= 6; i++) {
+                let hx = x * 3/4 + r * Math.cos(Math.PI * i/3),
+                    hy = y * Math.sqrt(3/4) + r * Math.sin(Math.PI * i/3);
+                ctx[f](hx, hy);
+                f = 'lineTo';
+              }
+            };
+            ctx.strokeHexagon = function (x, y, r) {
+              ctx.hexagon(x, y, r);
+              ctx.stroke();
+            };
+            ctx.fillHexagon = function (x, y, r) {
+              ctx.hexagon(x, y, r);
+              ctx.fill();
+            };
             return ctx;
           },
           lumToHex = function (lum) {
@@ -33,37 +51,60 @@
             return '#' + hex + hex + hex;
           };
 
-    let worldGrid = [],
+    let mapTerrain = [],
+        mapPath = [],
         ctx = createCanvas('grid'),
         aStarCTX = createCanvas('a-star'),
         aStarIsRunning = false,
         aStarCurrent,
+        startXY = worldToCart(
+          Math.floor(Math.random() * gridDim[0]),
+          Math.floor(Math.random() * gridDim[1])
+        ),
+        endXY = worldToCart(
+          Math.floor(Math.random() * gridDim[0]),
+          Math.floor(Math.random() * gridDim[1])
+        ),
         start = {
-          x: Math.floor(Math.random() * gridDim[0]),
-          y: Math.floor(Math.random() * gridDim[1])
+          x: startXY.x,
+          y: startXY.y
         },
         end = {
-          x: start.x,//Math.floor(Math.random() * gridDim[0]),
-          y: Math.floor(Math.random() * gridDim[1])
+          x: endXY.x,
+          y: endXY.y
         };
 
     function dist(a, b) {
       return Math.sqrt(Math.pow(b.y - a.y, 2) + Math.pow(b.x - a.x, 2));
-    };
+    }
+    function cartToWorld(x, y) {
+      let row = Math.floor(x) * 2 + 7/4,
+          col = Math.floor(y) / 2 + 1/2;
+      if (Math.floor(y) % 2) row--;
+      return {x: row * gridSize, y: col * gridSize};
+    }
+    function worldToCart(u, v) {
+      // u /= gridSize;
+      // v /= gridSize;
+      let x = 0.5 * gridDim[0] * u/WIDTH,
+          y = 2 * gridDim[1] * v/HEIGHT;
+      // if (Math.floor(u/gridSize) % 2) y++;
+      return {x: Math.floor(x), y: Math.floor(y)};
+    }
 
     ctx.strokeStyle = '#aaaaaa';
     aStarCTX.fillStyle = '#ff00007F';
-    aStarCTX.font = gridSize*2/3 + 'px Courier New';
+    aStarCTX.font = gridSize * 2/3 + 'px Courier New';
     aStarCTX.textAlign = 'center';
 
     /// Initialize the world grid.
-    for (let x = 0, w = gridDim[0]; x < w; x++) {
-      worldGrid[x] = [];
-      for (let y = 0, h = gridDim[1]; y < h; y++) {
-        worldGrid[x][y] = {
-          val: 1,
-          fCost: Infinity,
-          child: null
+    for (let x = 0, w = gridDim[0]/2; x < w; x++) {
+      mapTerrain[x] = [];
+      for (let y = 0, h = gridDim[1]*2; y < h; y++) {
+        mapTerrain[x][y] = {
+          val: 1//,
+          // fCost: Infinity,
+          // child: null
         };
       }
     }
@@ -71,6 +112,7 @@
     async function aStar(start, end) {
       console.log('Searching for path...');
       aStarIsRunning = true;
+      mapPath = [];
 
       let tStart = Date.now(),
           iter = 0,
@@ -80,7 +122,7 @@
           fCost = function (a) {
             let gCost = dist(a, start),
                 hCost = dist(a, end),
-                fatigue = 1 - worldGrid[a.x][a.y].val;
+                fatigue = 1 - mapTerrain[a.x][a.y].val;
             return gCost + hCost + terrainScalar * fatigue;
           },
           evaluate = function (x, y) {
@@ -92,20 +134,27 @@
             if (!allowDiagonals && x && y) return;
             x += current.x;
             y += current.y;
+            if (!mapPath[x]) mapPath[x] = [];
+            if (!mapPath[x][y]) {
+              mapPath[x][y] = {
+                fCost: Infinity,
+                child: null
+              };
+            }
             /// Keep within bounds.
             if (x < 0 || x >= gridDim[0]) return;
             if (y < 0 || y >= gridDim[1]) return;
             newF = fCost({x: x, y: y});
             /// Ignore walls. They cannot be crossed.
-            if (!canCrossWalls && worldGrid[x][y].val === 0) return;
+            if (!canCrossWalls && mapTerrain[x][y].val === 0) return;
             /// Do not reevaluate tiles.
             if (closed.filter(a => a.x === x && a.y === y).length) return;
             /// Should have a lesser fCost.
-            if (newF >= worldGrid[x][y].fCost && open.filter(a => a.x === x && a.y === y).length) return;
+            if (newF >= mapPath[x][y].fCost && open.filter(a => a.x === x && a.y === y).length) return;
             /// This tile is now open for evaluation!
             open.push({x: x, y: y});
-            worldGrid[x][y].fCost = newF;
-            worldGrid[x][y].child = {
+            mapPath[x][y].fCost = newF;
+            mapPath[x][y].child = {
               x: current.x,
               y: current.y
             };
@@ -171,30 +220,32 @@
 
       let isClick = false, clickColor = -1;
       $(CANVAS)
-          .bind('mousedown', (e) => {
-            isClick = true;
-            let pos = $(CANVAS).position(),
-                px = Math.floor(e.pageX - pos.top),
-                py = Math.floor(e.pageY - pos.left),
-                gx = Math.floor(px/gridSize),
-                gy = Math.floor(py/gridSize),
-                val = worldGrid[gx][gy].val + clickIncr;
-            if (val > 1) val = 0;
-            worldGrid[gx][gy].val = clickColor = val;
-          })
-          .bind('mouseleave mouseup', (e) => {
-            isClick = false;
-            clickColor = -1;
-          })
-          .bind('mousemove', (e) => {
+        .bind('mousedown', (e) => {
+          isClick = true;
+          let pos = $(CANVAS).position(),
+              px = Math.floor(e.pageX - pos.top),
+              py = Math.floor(e.pageY - pos.left),
+              gxy = worldToCart(px, py),
+              gx = gxy.x,//Math.floor(px/gridSize),
+              gy = gxy.y,//Math.floor(py/gridSize);
+              val = mapTerrain[gx][gy].val + clickIncr;
+          if (val > 1) val = 0;
+          mapTerrain[gx][gy].val = clickColor = val;
+          console.log([px, py], [gx, gy], mapTerrain[gx][gy]);
+        })
+        .bind('mouseleave mouseup', (e) => {
+          isClick = false;
+          clickColor = -1;
+        })
+        .bind('mousemove', (e) => {
             if (!isClick) return;
             let pos = $(CANVAS).position(),
                 px = Math.floor(e.pageX - pos.top),
                 py = Math.floor(e.pageY - pos.left),
-                gx = Math.floor(px/gridSize),
-                gy = Math.floor(py/gridSize);
-            worldGrid[gx][gy].val = clickColor;
-            // console.log([px, py], [gx, gy], worldGrid[gx][gy]);
+                gxy = worldToCart(px, py),
+                gx = gxy.x,//Math.floor(px/gridSize),
+                gy = gxy.y;//Math.floor(py/gridSize);
+            mapTerrain[gx][gy].val = clickColor;
           });
     })();
 
@@ -202,17 +253,20 @@
       function () {
         ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-        /// Draw the worldGrid.
-        for (let x = 0, w = gridDim[0]; x < w; x++) {
-          for (let y = 0, h = gridDim[1]; y < h; y++) {
-            let c = worldGrid[x][y].val;
+        /// Draw the mapTerrain.
+        for (let x = 0, w = gridDim[0]/2; x < w; x++) {
+          for (let y = 0, h = gridDim[1]*2; y < h; y++) {
+            let c = mapTerrain[x][y].val,
+                xy = cartToWorld(x, y);
             ctx.fillStyle = lumToHex(c);
-            ctx.fillRect(x*gridSize, y*gridSize, gridSize, gridSize);
-            ctx.strokeRect(x*gridSize, y*gridSize, gridSize, gridSize);
+            // ctx.fillRect(x*gridSize, y*gridSize, gridSize, gridSize);
+            // ctx.strokeRect(x*gridSize, y*gridSize, gridSize, gridSize);
+            ctx.fillHexagon(xy.x, xy.y, gridSize/2);
+            ctx.strokeHexagon(xy.x, xy.y, gridSize/2);
           }
         }
 
-        /// Draw the worldGrid onto the display.
+        /// Draw the mapTerrain onto the display.
         CTX.clearRect(0, 0, WIDTH, HEIGHT);
         CTX.drawImage(ctx.canvas, 0, 0);
 
@@ -220,7 +274,7 @@
         if (aStarCurrent) {
           let x = aStarCurrent.x,
               y = aStarCurrent.y,
-              child = worldGrid[x][y].child;
+              child = mapPath[x][y] ? mapPath[x][y].child : null;
           CTX.fillStyle = CTX.strokeStyle = '#00ff7f7f';
           CTX.lineWidth = 4;
           CTX.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
@@ -231,7 +285,11 @@
             CTX.lineTo((child.x+0.5)*gridSize, (child.y+0.5)*gridSize);
             while (child) {
               CTX.lineTo((child.x+0.5)*gridSize, (child.y+0.5)*gridSize);
-              child = worldGrid[child.x][child.y].child;
+              if (mapPath[child.x][child.y]) {
+                child = mapPath[child.x][child.y].child;
+              } else {
+                child = null;
+              }
             }
             CTX.stroke();
           }
@@ -241,8 +299,8 @@
         CTX.fillStyle = 'green';
         CTX.beginPath();
         CTX.arc(
-          (start.x+0.5) * gridSize,
-          (start.y+0.5) * gridSize,
+          start.x * gridSize,
+          start.y * gridSize,
           gridSize * 0.4,
           0, 2*Math.PI
         );
@@ -250,8 +308,8 @@
         CTX.fillStyle = 'red';
         CTX.beginPath();
         CTX.arc(
-          (end.x+0.5) * gridSize,
-          (end.y+0.5) * gridSize,
+          end.x * gridSize,
+          end.y * gridSize,
           gridSize * 0.4,
           0, 2*Math.PI
         );
