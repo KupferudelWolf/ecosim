@@ -33,7 +33,8 @@
             return '#' + hex + hex + hex;
           };
 
-    let worldGrid = [],
+    let mapTerrain = [],
+        mapPath = [],
         ctx = createCanvas('grid'),
         aStarCTX = createCanvas('a-star'),
         aStarIsRunning = false,
@@ -43,27 +44,27 @@
           y: Math.floor(Math.random() * gridDim[1])
         },
         end = {
-          x: start.x,//Math.floor(Math.random() * gridDim[0]),
+          x: Math.floor(Math.random() * gridDim[0]),
           y: Math.floor(Math.random() * gridDim[1])
         };
 
     function dist(a, b) {
       return Math.sqrt(Math.pow(b.y - a.y, 2) + Math.pow(b.x - a.x, 2));
-    };
+    }
 
     ctx.strokeStyle = '#aaaaaa';
     aStarCTX.fillStyle = '#ff00007F';
-    aStarCTX.font = gridSize*2/3 + 'px Courier New';
+    aStarCTX.font = gridSize * 2/3 + 'px Courier New';
     aStarCTX.textAlign = 'center';
 
     /// Initialize the world grid.
     for (let x = 0, w = gridDim[0]; x < w; x++) {
-      worldGrid[x] = [];
+      mapTerrain[x] = [];
       for (let y = 0, h = gridDim[1]; y < h; y++) {
-        worldGrid[x][y] = {
-          val: 1,
-          fCost: Infinity,
-          child: null
+        mapTerrain[x][y] = {
+          val: 1//,
+          // fCost: Infinity,
+          // child: null
         };
       }
     }
@@ -71,6 +72,7 @@
     async function aStar(start, end) {
       console.log('Searching for path...');
       aStarIsRunning = true;
+      mapPath = [];
 
       let tStart = Date.now(),
           iter = 0,
@@ -80,7 +82,7 @@
           fCost = function (a) {
             let gCost = dist(a, start),
                 hCost = dist(a, end),
-                fatigue = 1 - worldGrid[a.x][a.y].val;
+                fatigue = 1 - mapTerrain[a.x][a.y].val;
             return gCost + hCost + terrainScalar * fatigue;
           },
           evaluate = function (x, y) {
@@ -92,20 +94,27 @@
             if (!allowDiagonals && x && y) return;
             x += current.x;
             y += current.y;
+            if (!mapPath[x]) mapPath[x] = [];
+            if (!mapPath[x][y]) {
+              mapPath[x][y] = {
+                fCost: Infinity,
+                child: null
+              };
+            }
             /// Keep within bounds.
             if (x < 0 || x >= gridDim[0]) return;
             if (y < 0 || y >= gridDim[1]) return;
             newF = fCost({x: x, y: y});
             /// Ignore walls. They cannot be crossed.
-            if (!canCrossWalls && worldGrid[x][y].val === 0) return;
+            if (!canCrossWalls && mapTerrain[x][y].val === 0) return;
             /// Do not reevaluate tiles.
             if (closed.filter(a => a.x === x && a.y === y).length) return;
             /// Should have a lesser fCost.
-            if (newF >= worldGrid[x][y].fCost && open.filter(a => a.x === x && a.y === y).length) return;
+            if (newF >= mapPath[x][y].fCost && open.filter(a => a.x === x && a.y === y).length) return;
             /// This tile is now open for evaluation!
             open.push({x: x, y: y});
-            worldGrid[x][y].fCost = newF;
-            worldGrid[x][y].child = {
+            mapPath[x][y].fCost = newF;
+            mapPath[x][y].child = {
               x: current.x,
               y: current.y
             };
@@ -171,48 +180,48 @@
 
       let isClick = false, clickColor = -1;
       $(CANVAS)
-          .bind('mousedown', (e) => {
-            isClick = true;
-            let pos = $(CANVAS).position(),
-                px = Math.floor(e.pageX - pos.top),
-                py = Math.floor(e.pageY - pos.left),
-                gx = Math.floor(px/gridSize),
-                gy = Math.floor(py/gridSize),
-                val = worldGrid[gx][gy].val + clickIncr;
-            if (val > 1) val = 0;
-            worldGrid[gx][gy].val = clickColor = val;
-          })
-          .bind('mouseleave mouseup', (e) => {
-            isClick = false;
-            clickColor = -1;
-          })
-          .bind('mousemove', (e) => {
-            if (!isClick) return;
-            let pos = $(CANVAS).position(),
-                px = Math.floor(e.pageX - pos.top),
-                py = Math.floor(e.pageY - pos.left),
-                gx = Math.floor(px/gridSize),
-                gy = Math.floor(py/gridSize);
-            worldGrid[gx][gy].val = clickColor;
-            // console.log([px, py], [gx, gy], worldGrid[gx][gy]);
-          });
+        .bind('mousedown', (e) => {
+          isClick = true;
+          let pos = $(CANVAS).position(),
+              px = Math.floor(e.pageX - pos.top),
+              py = Math.floor(e.pageY - pos.left),
+              gx = Math.floor(px/gridSize),
+              gy = Math.floor(py/gridSize),
+              val = mapTerrain[gx][gy].val + clickIncr;
+          if (val > 1) val = 0;
+          mapTerrain[gx][gy].val = clickColor = val;
+          // console.log([px, py], [gx, gy], mapTerrain[gx][gy]);
+        })
+        .bind('mouseleave mouseup', (e) => {
+          isClick = false;
+          clickColor = -1;
+        })
+        .bind('mousemove', (e) => {
+          if (!isClick) return;
+          let pos = $(CANVAS).position(),
+              px = Math.floor(e.pageX - pos.top),
+              py = Math.floor(e.pageY - pos.left),
+              gx = Math.floor(px/gridSize),
+              gy = Math.floor(py/gridSize);
+          mapTerrain[gx][gy].val = clickColor;
+        });
     })();
 
     let loop = setInterval(
       function () {
         ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-        /// Draw the worldGrid.
+        /// Draw the mapTerrain.
         for (let x = 0, w = gridDim[0]; x < w; x++) {
           for (let y = 0, h = gridDim[1]; y < h; y++) {
-            let c = worldGrid[x][y].val;
+            let c = mapTerrain[x][y].val;
             ctx.fillStyle = lumToHex(c);
             ctx.fillRect(x*gridSize, y*gridSize, gridSize, gridSize);
             ctx.strokeRect(x*gridSize, y*gridSize, gridSize, gridSize);
           }
         }
 
-        /// Draw the worldGrid onto the display.
+        /// Draw the mapTerrain onto the display.
         CTX.clearRect(0, 0, WIDTH, HEIGHT);
         CTX.drawImage(ctx.canvas, 0, 0);
 
@@ -220,7 +229,7 @@
         if (aStarCurrent) {
           let x = aStarCurrent.x,
               y = aStarCurrent.y,
-              child = worldGrid[x][y].child;
+              child = mapPath[x][y] ? mapPath[x][y].child : null;
           CTX.fillStyle = CTX.strokeStyle = '#00ff7f7f';
           CTX.lineWidth = 4;
           CTX.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
@@ -231,7 +240,11 @@
             CTX.lineTo((child.x+0.5)*gridSize, (child.y+0.5)*gridSize);
             while (child) {
               CTX.lineTo((child.x+0.5)*gridSize, (child.y+0.5)*gridSize);
-              child = worldGrid[child.x][child.y].child;
+              if (mapPath[child.x][child.y]) {
+                child = mapPath[child.x][child.y].child;
+              } else {
+                child = null;
+              }
             }
             CTX.stroke();
           }
